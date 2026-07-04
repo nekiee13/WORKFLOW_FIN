@@ -139,8 +139,75 @@ Rules: numbers only in the numeric fields; every field mandatory; `MISSING:` pre
 ### 3.5 Tighten self-audit credit
 **Change (72 Deduction Table):** credit (×0.5) applies **only if the conclusion was adjusted**; disclosure without resolution takes the full deduction plus a note. (06-16 showed disclosure-heavy reports outranking resolved ones — the incentive is currently backwards.)
 
-### 3.6 Add outcome scoring (new signal, low cost)
-**Change (new small prompt doc, 78_ACCURACY_POSTMORTEM.md):** after each week closes, the user pastes the realized closes plus each report's Final Forecasts table into this short prompt; it produces the hit-rate table (Exact error, Range hit Y/N, Bias correct Y/N per report × ticker × day) using the same transcription→comparison worksheet pattern as 3.3, appended to the weekly 99. Report quality (process) and forecast accuracy (outcome) become separate, trackable axes; over weeks this shows whether "better reports" actually forecast better.
+### 3.6 — FUTURE UPGRADE CONSIDERATION (C3): Outcome axis / accuracy postmortem
+**Status: NOT scheduled — recorded for future consideration (user decision 2026-07-04).**
+
+**GOAL**
+Add a second, strictly separate measurement axis — *forecast accuracy vs realized
+market* — alongside the existing process axis (reasoning quality / instruction
+following), without ever diluting the anti-hallucination purpose of the 70-series.
+After enough weeks, answer with data: *do better-reasoning reports actually forecast
+better?*
+
+**WHAT & WHY**
+- *What:* a new small prompt doc, `78_ACCURACY_POSTMORTEM.md`, run once per week
+  AFTER the forecast window closes. The user pastes the realized Yahoo closes
+  (Day+1..last effective day — the only new input; ~6 tickers × ≤3 numbers) plus
+  each report's Final Three-Day Forecasts table. The prompt produces a hit-rate
+  ledger via the same transcription→verification worksheet pattern as W0/CALC
+  WORKSHEET: per report × ticker × effective day — Exact error (absolute and %),
+  RANGE_HIT (Realized ∈ [Range_Lo, Range_Hi]? Y/N), BIAS_HIT (sign(Realized −
+  Current) matches Bias? Y/N; TNX in yield terms) — then per-report aggregates
+  (range hit-rate, bias hit-rate, median absolute % error).
+- *Why:*
+  1. The 70-series deliberately measures process, not outcomes — that is its
+     critical anti-hallucination property and must not change. But it leaves a
+     blind spot: a top-ranked report could forecast systematically worse than a
+     low-ranked one and nothing in the workflow would notice.
+  2. Upgrade verification: the only empirical way to know whether template fixes
+     (bias buckets, ranges, sentiment hand-off) improve *forecasts*, not just
+     compliance.
+  3. Input diagnosis: if ALL models miss in the same direction, the error lives in
+     the shared inputs (ML ensemble, sentiment), not in any model's reasoning —
+     actionable signal the process axis can never produce.
+  4. Cheap: one small prompt; every needed forecast value already exists in the
+     reports; realized closes are ordinary user-provided input data.
+- *Why a SEPARATE axis, never merged:* blending outcome luck into the rankings
+  would corrupt the incentive the eval exists to protect — a lucky hallucinator
+  must never outrank a disciplined reasoner. Hard rule: postmortem numbers never
+  feed W3B scores, never appear in 90, never reorder rankings.
+
+**TASKS INVOLVED (all prompt-only; computation = missing data only)**
+- T1. Write `78_ACCURACY_POSTMORTEM.md`: input contract (realized closes table +
+  Final Forecasts tables); Pass 1 transcription only (copy Exact/Range/Bias/Current
+  + realized closes into one table, no judgment); Pass 2 mechanical per-row checks
+  (errors, RANGE_HIT, BIAS_HIT — operands shown); Pass 3 aggregates, each tracing
+  to Pass-2 rows.
+- T2. Define the output artifact: rolling `79_ACCURACY_LEDGER.md` (one table per
+  week, cumulative), or a clearly-labeled "OUTCOME AXIS — not part of rankings"
+  section appended to the weekly 99.
+- T3. Edge-case rules: closed days and "N/A (market closed)" cells excluded from
+  denominators; BOUNDARY_CONSTRAINED forecasts scored as printed; reports without
+  a Final Forecasts table → EXCLUDED row (not zero); realized closes are Yahoo
+  canonical (same precedence rule as the workflow).
+- T4. After ≥4 weeks: rolling summary comparing process rank (from 99) vs outcome
+  rank (from the ledger) per model — the answer to the GOAL question.
+- T5. Wire-in: one optional-step line in 20_GUIDE; realized closes added to 26's
+  PRESENT inventory when adopted; CLAUDE.md note that the outcome axis exists but
+  never merges into rankings.
+
+**ACCEPTANCE CRITERIA**
+- A1. Running 78 on a closed week yields the full ledger for all reports × tickers
+  × effective days with zero recomputation of forecast values (transcription only)
+  and all arithmetic shown in the worksheet.
+- A2. Every aggregate traces to worksheet rows (WORKSHEET_MISMATCH discipline).
+- A3. Rankings unchanged: W3B scores, 90 output and the weekly 99 ranking are
+  byte-identical with or without the postmortem section present.
+- A4. Closed/N-A days are excluded from all denominators, stated explicitly.
+- A5. Determinism: two different LLMs running 78 on identical inputs produce
+  identical hit/miss flags and aggregates.
+- A6. After 4+ weeks the process-vs-outcome rank comparison exists and supports a
+  stated conclusion (correlated / uncorrelated / inverted).
 
 ---
 
@@ -169,7 +236,7 @@ B2. SENTIMENT_PACKAGE contract in 17 + consumption wording in 29 (1.1, 1.3) — 
 **Phase C — evaluation quality (prompt/process only):**
 C1. FACT_CHECK transcription→verification worksheet in 72 (or as a tiny pre-pass prompt) (3.3) — ✅ APPLIED 2026-07-04 as mandatory work product W0; Trees 3 & 4 now trigger only from W0 rows
 C2. Cross-batch calibration anchors (3.4) — ✅ APPLIED 2026-07-04 to the batch continuation prompts 81 / 83_1 / 83_2: each later batch must re-read the previous batches' W3B scorecards + W10 weakness tables as scale anchors and justify any >10-point section-score deviation from an anchor of similar completeness
-C3. `78_ACCURACY_POSTMORTEM.md` prompt (3.6) — downgraded to OPTIONAL: user confirmed the 70-series intentionally measures reasoning quality / instruction-following, not forecast accuracy; outcome scoring would be a separate optional axis, never merged into the rankings
+C3. `78_ACCURACY_POSTMORTEM.md` (3.6) — NOT scheduled; recorded as a FUTURE UPGRADE CONSIDERATION with full spec (GOAL / What & Why / Tasks T1–T5 / Acceptance A1–A6) in §3.6. Outcome axis stays strictly separate from rankings, by design
 
 **Drift guard — ✅ APPLIED 2026-07-04:** precedence clauses added: 70 header declares 72 the single normative source (72 wins on any disagreement); 72 header declares its authority and requires deductions to map to 28 via the Grading Contract.
 
