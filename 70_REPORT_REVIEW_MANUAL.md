@@ -1,5 +1,11 @@
 # Manual for the Axiom Evaluation Framework v3.0
 
+> **PRECEDENCE (HARD):** This manual is explanatory commentary. The single
+> normative source for the evaluation rubric is `72_AXIOM` (Axiom Evaluation
+> Framework v3.0). If this manual and 72 disagree on any rule, threshold,
+> deduction, or format, **72 wins**. Rule changes are made in 72 first; this
+> manual is then updated to match.
+
 ## 1. Purpose of the Framework
 
 The **Axiom Evaluation Framework v3.0** is a structured method used to judge market forecast reports.
@@ -1202,9 +1208,35 @@ A claim has weak or missing evidence support.
 
 References are listed, but links are empty placeholders.
 
+### Scope (HARD)
+
+Reports are graded only against the citation rules that 28\_QUERY itself imposes
+(local \[^n] footnotes; issuer-first sourcing; resolved footnote list). The
+EvidencePointer format binds the evaluator's own claims, never the reports.
+"Citations are citation-style rather than EvidencePointer" is NOT a deductible
+finding.
+
+### Grading Contract (no deduction without a mapped generator requirement)
+
+Every deduction category must test an explicit requirement of 28\_QUERY. If a
+candidate finding cannot be mapped to a row below, it is not chargeable:
+
+| Deduction category | 28\_QUERY requirement it tests |
+|---|---|
+| traceability\_gap | Local \[^n] footnotes on event rows and externally sourced claims; footnote list resolved |
+| numeric\_inconsistency | Range–Exact constraint; median+MAD divergence rule; user data primacy (AXIOM 0) |
+| schema\_omission | AXIOM 1 global blocks (1)–(8) and per-ticker subsections (a)–(m) |
+| inconsistent\_definitions | Deterministic definitions in AXIOM 2 / TDA Translation Rules |
+| undeclared\_assumption | Derived metrics permitted only with stated formula (DERIVED\_METRIC flag) |
+| structure\_jump | AXIOM 1 fixed section order; Stage 7 schema-order QA |
+| false\_precision | Numeric formatting rules; confidence fields from Step 1 package |
+| missing\_limitations | Required flags (BOUNDARY\_CONSTRAINED, RANGE\_CONSTRAINED\_BIAS, INDETERMINATE flip risk, etc.) |
+| decision\_guidance\_detached | Risk Management subsection mapping to pivots + ATR/ADX posture |
+
 ### Purpose of Detection
 
-This protects audit quality.
+This protects audit quality and keeps the evaluator aligned with the generator's
+actual contract.
 
 ***
 

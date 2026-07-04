@@ -20,10 +20,30 @@ Analysis Date (ASOF): ==2026-06-30==
 Trading Calendar: NYSE
 Forecast Horizon (FH): 3 business days - ==2026-07-01, 2026-07-02, 2026-07-03==
 
+NYSE_CALENDAR_2026 (AUTHORITATIVE; single calendar authority; maintained in this template)
+- Full-day closures 2026: Jan 1 (New Year's Day), Jan 19 (MLK Day), Feb 16 (Washington's
+  Birthday), Apr 3 (Good Friday), May 25 (Memorial Day), Jun 19 (Juneteenth),
+  Jul 3 (Independence Day observed), Sep 7 (Labor Day), Nov 26 (Thanksgiving),
+  Dec 25 (Christmas).
+- Early closes (13:00 ET): Nov 27, Dec 24.
+- Weekends are always non-trading days.
+- This block supersedes any injected date, including the FH line above.
+
+CALENDAR GATE (HARD; execute at Protocol step 0, before anything else)
+1. Check each FH date against NYSE_CALENDAR_2026 (holiday or weekend = non-trading).
+2. EFFECTIVE_TRADING_DAYS = the FH dates that are trading days, in order.
+3. If any FH date is a non-trading day:
+   - flag CALENDAR_SUPERSEDED: <date> (<holiday name>)
+   - print CALENDAR_NOTE: "<date>: closed — <holiday>; effective horizon = <N> session(s)."
+4. The report covers EVERY effective trading day. Never silently retarget to a single
+   day or relabel the report (e.g., "+2-Day") — state the CALENDAR_NOTE and keep the
+   full effective horizon. Downstream Step 2 consumes these exact dates.
+
 Derived Windows (must be computed, not guessed):
 - Recent Events Window: <<ASOF-7CAL>> → <<ASOF>>
 - Upcoming Events Window: <<ASOF+1BD>>, <<ASOF+2BD>>, <<ASOF+3BD>>
-- Forecast Dates: <<DAY+1>>, <<DAY+2>>, <<DAY+3>>  # exactly 3 dates
+- Forecast Dates: <<DAY+1>>, <<DAY+2>>, <<DAY+3>>  # exactly 3 dates; non-trading dates
+  flagged CALENDAR_SUPERSEDED per Calendar Gate (never silently dropped)
 
 Tickers: { SPX, DJI, QQQ, VIX, TNX, AAPL }
 
@@ -516,7 +536,9 @@ Implementation Vectors (OPTIMIZATION HEURISTICS):
 - max(spot_futures_mapping_clarity) without changing the primary ticker object
 
 Research & Synthesis Protocol:
-0) Compute windows/dates from ASOF and calendar; do not guess.
+0) Execute the CALENDAR GATE (see Parameters) FIRST, then compute windows/dates from
+   ASOF and NYSE_CALENDAR_2026; do not guess. EFFECTIVE_TRADING_DAYS govern all
+   downstream date logic and the report's stated horizon.
 
 1) Build per-ticker Recent Major Events table (window_recent) with direction and citations.
 2) Build per-ticker Upcoming Events table (window_upcoming) with sensitivity and citations.
@@ -560,7 +582,13 @@ I. GENERAL SECTION
 
 Rules:
 - Forecast values from <<TABLE_FH3>>
+- DAY+2 FALLBACK (HARD): if FH Day+3 is a non-trading day (Calendar Gate), the
+  "FH Day+3 Forecast" column shows the Day+2 forecast, annotated
+  "(Day+2 fallback; Day+3 market closed)". Directional Bias, Confidence and
+  Key Risk must then be computed from and align with the Day+2 forecast —
+  never from the superseded Day+3 value.
 - Directional Bias = Up / Down / Mixed based on FH trajectory vs last close
+  (trajectory ends at the last EFFECTIVE trading day)
 - Confidence considers event density + structural alignment/override + soft-indicator breadth/agreement + geopolitical severity/persistence + any material spot-vs-futures divergence when invoked
 - Key Risk references upcoming event, SVL/TDA condition, geopolitical shock, material soft-indicator divergence, or spot-vs-futures divergence where relevant
 

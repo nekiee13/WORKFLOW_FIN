@@ -96,14 +96,34 @@ User-Supplied Data Policy (NON-NEGOTIABLE)
 - If any user-supplied field needed by the schema is absent, print MISSING_USER_INPUT and continue.
 - Derived metrics computed solely from user-supplied values are permitted if formula is stated (e.g., ATR% = ATR/Price) and flagged as DERIVED_METRIC.
 
+DERIVED_METRICS (GROUND TRUTH) Contract (HARD)
+- The user supplies a per-ticker DERIVED_METRICS block (median_P, MAD, MAD_floor,
+  outlier flags, dispersion trigger, Range_Lo/Range_Hi + branch fired, placement-zone
+  markers P20..P80, pivot proximity, 0.10×ATR, 0.25×ATR, ATR%, indicator zones).
+- These values are GROUND TRUTH with the same standing as closes and indicators.
+- NO-COMPUTE RULE: for every field covered by the block, the LLM performs NO
+  arithmetic — no recomputation, no verification math, no re-rounding. Quote and
+  interpret only. Recomputing a covered field is a QA failure:
+  FACT_LOCK_FAIL: DERIVED_METRICS_RECOMPUTED <ticker>.
+- If the block is absent, or a specific field is ABSENT: print
+  MISSING_USER_INPUT: DERIVED_METRICS(<ticker>.<field>) and only then apply the
+  legacy formula for that field, flagged DERIVED_METRIC per the rule above.
+
 Close Precedence & Discrepancy Protocol (HARD)
 - Yahoo Finance close is canonical.
 - Investing.com close is secondary context only (never used for calculations).
-- If Yahoo ≠ Investing:
-  - Include a Discrepancy Note in that ticker section:
+- DISCREPANCY SWEEP (UNCONDITIONAL; MANDATORY):
+  Immediately after the Executive Summary & Final Forecasts table, emit this table
+  with ONE ROW PER TICKER — all 6 rows required, no ticker may be skipped:
+  | Ticker | Yahoo Close | Investing Close | EQUAL (Y/N) | NOTE_REQUIRED (Y/N) |
+  Rules: EQUAL = Y only if both values match exactly as printed.
+         NOTE_REQUIRED = N if EQUAL = Y; NOTE_REQUIRED = Y if EQUAL = N.
+- For every NOTE_REQUIRED = Y ticker, include a Discrepancy Note in that ticker section:
     * state both closes (Yahoo canonical, Investing secondary)
     * list 2–3 plausible mechanisms (timestamp/venue/rounding/vendor methodology) labeled as hypotheses unless cited
     * state: "No correction applied; all computations anchored to Yahoo."
+- For every NOTE_REQUIRED = N ticker: no Discrepancy Note (emitting one is a QA failure).
+  The sweep table makes the condition explicit; do not re-detect it implicitly in prose.
 
 ────────────────────────────────────────────────────────
 PIPELINE PARAMETERS (INJECTED — DO NOT MODIFY)
@@ -112,10 +132,52 @@ Analysis Date (ASOF): ==2026-06-30==
 Trading Calendar: NYSE
 Forecast Horizon (FH): 3 business days - ==2026-07-01, 2026-07-02, 2026-07-03==
 
+NYSE_CALENDAR_2026 (AUTHORITATIVE; single calendar authority; maintained in this template)
+- Full-day closures 2026: Jan 1 (New Year's Day), Jan 19 (MLK Day), Feb 16 (Washington's
+  Birthday), Apr 3 (Good Friday), May 25 (Memorial Day), Jun 19 (Juneteenth),
+  Jul 3 (Independence Day observed), Sep 7 (Labor Day), Nov 26 (Thanksgiving),
+  Dec 25 (Christmas).
+- Early closes (13:00 ET): Nov 27, Dec 24.
+- Weekends are always non-trading days.
+- This block supersedes any injected date, including the FH line above and the fh3 table.
+
+CALENDAR GATE (HARD; execute at Stage 0, before anything else)
+1. Check each FH date against NYSE_CALENDAR_2026 (holiday or weekend = non-trading).
+2. EFFECTIVE_TRADING_DAYS = the FH dates that are trading days, in order.
+3. If any FH date is a non-trading day:
+   - flag CALENDAR_SUPERSEDED: <date> (<holiday name>)
+   - print CALENDAR_NOTE: "<date>: closed — <holiday>; effective horizon = <N> session(s)."
+   - in every table, that day's forecast cells read "N/A (market closed)"
+   - Ranges/Exacts are produced ONLY for EFFECTIVE_TRADING_DAYS
+   - fh3-table values for closed days are ignored (never consumed as anchors).
+4. DAY+2 FALLBACK (HARD; named rule — cite it wherever applied):
+   If Day+3 is a non-trading day, then every rule anchored to Day+3 falls back to
+   Day+2, and all projections align with the Day+2 forecast:
+   - ANCHORS (per-ticker FH-table values; Day-2 values EXIST — use them):
+     * ML_Reference(t) = FH_Day2(t) instead of FH_Day3(t).
+     * FH_sign(t) = sign(FH_Day2(t) − FH_Day1(t)).
+     * The report's final-day Exact/Range/Bias/Projection ARE the Day+2 values;
+       Day+3 cells read "N/A (market closed)" and carry no numbers.
+   - MODEL SET (per-model "Forecasting results" tables are provided for Day 3
+     ONLY — do NOT invent, rescale, or interpolate per-model Day-2 values):
+     * The outlier rule, divergence rule, and Range Builder keep using the provided
+       Day-3 model set P, re-labeled as applying to the LAST EFFECTIVE session:
+       state once per ticker: "Range/dispersion built from the provided Day-3 model
+       set, applied to Day+2 (Day+2 fallback; Day+3 market closed)."
+     * If FH_Day2(t) or Exact(t) conflicts with that Range, the existing
+       BOUNDARY_CONSTRAINED protocol handles it — no ad-hoc range widening.
+   - Every substituted value is annotated "(Day+2 fallback; Day+3 market closed)"
+     at first use in each section.
+   No rule may silently keep consuming Day+3 anchors for a closed day, and no rule
+   may demand per-model Day-2 data that the input does not contain.
+5. Never silently truncate, shift, or re-target the horizon. The Calendar Gate output
+   is the only permitted adjustment and must be restated in the Report Header.
+
 Derived Windows (must be computed, not guessed)
 - Recent Events Window: ASOF-7CAL → ASOF (inclusive)
 - Upcoming Events Window: Day+1, Day+2, Day+3 (trading days; ET)
-- Forecast Dates: Day+1, Day+2, Day+3 (exactly 3 dates)
+- Forecast Dates: Day+1, Day+2, Day+3 (exactly 3 dates; non-trading dates are retained
+  in tables but marked "N/A (market closed)" per Calendar Gate)
 
 Tickers: { SPX, DJI, QQQ, VIX, TNX, AAPL }
 Upstream Sentiment Package: supplied from Workflow Step 1; authoritative for all sentiment-dependent fields and logic
@@ -217,16 +279,22 @@ Applies inside each ticker's "### Visual Chart Analysis & Regions" subsection on
 12) Close-confirmation rule (deterministic):
    - "Break" = daily close beyond pivot by ≥ 0.25×ATR
    - "Hold" = daily close within ±0.25×ATR and rejection wick implied by next-day reversal is NOT allowed (no candlesticks yet); instead use "failed follow-through next day".
-13) Outlier rule (median + MAD; Day-3 point forecasts only):
-   - Let P be the set of available Day-3 point forecasts (exclude missing).
-   - Let m = median(P).
-   - Let MAD = median(|Pi − m|).
-   - Define MAD_floor = max(MAD, 0.10×ATR). (DERIVED_METRIC; show formula.)
-   - A model forecast Pi is an Outlier if |Pi − m| ≥ 3.00×MAD_floor.
-14) Divergence statement trigger (deterministic; MAD-aligned):
-   Insert a Divergence Note if either holds:
-   (a) Wide dispersion: (max(P) − min(P)) ≥ max(1.50×ATR, 4.00×MAD_floor)
-   (b) Any Outlier exists per Rule 13
+13) Outlier rule (QUOTE from DERIVED_METRICS; do not compute):
+   - median_P, MAD, MAD_floor, and the Outlier list are supplied in the injected
+     DERIVED_METRICS block. Quote them as ground truth (NO-COMPUTE RULE).
+   - Definitions of record (how the user computed them; not for LLM execution):
+     P = available Day-3 point forecasts; m = median(P); MAD = median(|Pi − m|);
+     MAD_floor = max(MAD, 0.10×ATR); Outlier: |Pi − m| ≥ 3.00×MAD_floor.
+   - If Day+3 is non-trading: the supplied values are built from the Day-3 model set,
+     re-labeled as applying to the last effective session (DAY+2 FALLBACK; per-model
+     Day-2 values are not provided and must not be invented).
+   - Only if DERIVED_METRICS is ABSENT for a field: print MISSING_USER_INPUT and
+     apply the definition of record as legacy fallback, flagged DERIVED_METRIC.
+14) Divergence statement trigger (QUOTE from DERIVED_METRICS):
+   - The Dispersion trigger (NO / YES + which rule fired) is supplied in
+     DERIVED_METRICS. Insert a Divergence Note if and only if it says YES.
+   - Definitions of record: (a) Wide dispersion: (max(P) − min(P)) ≥
+     max(1.50×ATR, 4.00×MAD_floor); (b) any Outlier per Rule 13.
    Divergence Note must:
    - name the outlier model(s)
    - state one dominance condition (mechanical pivot trigger OR specific event)
@@ -295,6 +363,7 @@ subject to:
 Hard-required global blocks (must appear once, in order):
 (1) Report Header
 (2) Executive Summary & Final Forecasts (schema v2: range + exact)
+(2b) Discrepancy Sweep Table (all 6 tickers; per Close Precedence & Discrepancy Protocol)
 (3) Current Market Environment blocks (≥2 using required Explanation/Comment syntax)
 (4) Cross-Asset Themes (≥2 using required syntax; must include explicit coupling)
 (5) Scenario Analysis (3 scenarios; probabilities sum to 100)
@@ -315,7 +384,7 @@ Hard-required per-ticker subsections (must appear for every ticker, in order):
 (j) Commodity Correlation (28-day r & p OR deterministic limitation + qualitative linkage paragraph)
 (k) Risk Management mapping to pivots + ATR/ADX posture (deterministic rules)
 (l) Ticker Summary Table (exact schema)
-(m) Discrepancy Note (only if Yahoo ≠ Investing)
+(m) Discrepancy Note (required IFF NOTE_REQUIRED = Y in the Discrepancy Sweep Table)
 
 ────────────────────────────────────────────────────────
 AXIOM 1B — PARITY_GATE (HARD)
@@ -349,6 +418,7 @@ For every ticker t:
     
     Step 1: Extract Reference Data
         ML_Reference(t) = FH_Day3(t) from injected FH table [informational anchor]
+                          (if Day+3 non-trading: FH_Day2(t) per DAY+2 FALLBACK)
         ML_Range(t) = [Range_Lo, Range_Hi] from Range Builder [hard boundary]
         Current(t) = Yahoo close from user-supplied close table
     
@@ -381,7 +451,10 @@ For every ticker t:
         - If any required sentiment field is absent, print MISSING_USER_INPUT: <field> and continue.
     
     Step 3: Generate LLM Forecast Positioning
-        The LLM shall position Exact(t) within ML_Range(t) using the following logic:
+        The LLM shall position Exact(t) within ML_Range(t) using the following logic.
+        Zone boundaries are NOT computed: use the precomputed placement-zone markers
+        (P20/P30/P40/P50/P60/P70/P80) from DERIVED_METRICS to identify each zone's
+        interval, then select Exact inside it.
         
         IF Sentiment_Score(t) >= 7:
             Target_Zone = upper 30% of ML_Range
@@ -442,8 +515,20 @@ For every ticker t:
         - IF Exact > ML_Reference: "Positioned above ML reference due to [reasoning]"
 
 Range Builder:
+CONSUMPTION RULE (HARD): Range_Lo(t), Range_Hi(t), the branch fired, and the
+placement-zone markers (P20..P80) are supplied in the injected DERIVED_METRICS
+block — quote them as ground truth (NO-COMPUTE RULE). The logic below is the
+DEFINITION OF RECORD for how the user computes them; the LLM does not execute it.
+Exception: branch D (|P| < 3) cannot be precomputed because it depends on Exact —
+in that case DERIVED_METRICS marks the Range fields ABSENT and the LLM applies the
+branch-D formula below, flagged DERIVED_METRIC.
+
 Let P(t) = set of available Day-3 point forecasts for ticker t from the user "Forecasting results (Day 3)" tables
 (PyCaret/ARIMAX/PCE/LSTM/GARCH/VAR/RW/ETS where present).
+If Day+3 is non-trading (DAY+2 FALLBACK): P(t) stays the provided Day-3 model set
+(per-model Day-2 values are not provided; never invent or rescale them). The resulting
+Range applies to the LAST EFFECTIVE session, and all anchors/projections (ML_Reference,
+FH_sign, final-day Exact/Bias) align with FH_Day2.
 Let Regime(t) be SVL Regime_current.
 Let ADX(t), ATR(t) be user indicator values.
 
@@ -504,8 +589,9 @@ Formatting:
 FH sign (explicit; deterministic; used throughout):
 - For non-TNX tickers: FH_sign(t) = sign(FH_Day3(t) − FH_Day1(t)).
 - For TNX: interpret "Up"/"Down" in yield terms; FH_sign(TNX) = sign(FH_Day3(TNX) − FH_Day1(TNX)) where positive = yields up.
+- If Day+3 is non-trading: replace FH_Day3 with FH_Day2 in both formulas (DAY+2 FALLBACK).
 
-Model Divergence Rule (HARD; numeric; Day-3 points only):
+Model Divergence Rule (HARD; numeric; Day-3 points only — under DAY+2 FALLBACK the same provided Day-3 set applies to the last effective session):
 - Use the Operational Standard Rule 13–14 (median+MAD) to detect Outliers and Divergence.
 - No averaging of model forecasts is allowed.
 
@@ -519,17 +605,22 @@ Define Bias(t) using hierarchical logic:
           when Adjusted_Sentiment_Score is absent and both Base_Sentiment and StructuralAdjustment are supplied.
 
     Level 1 - Sentiment Score Dominance (Primary):
-        IF Sentiment_Score(t) >= 7:
+        [Buckets are EXHAUSTIVE: every real-valued score maps to exactly one branch.
+         Consistency with the Step 3 placement ladder: every score >= 6.5 lands at or
+         above the 60th-percentile zone (upper portion); every score <= 3.5 lands in
+         the lower-30% zone. No score can fall between buckets.]
+
+        IF Sentiment_Score(t) >= 6.5:
             Bias(t) = "Higher"
             [For TNX: interpret as yields rising]
             Required: Exact positioning must be consistent (in upper portion of range)
         
-        ELSE IF Sentiment_Score(t) <= 3:
+        ELSE IF Sentiment_Score(t) <= 3.5:
             Bias(t) = "Lower"
             [For TNX: interpret as yields falling]
             Required: Exact positioning must be consistent (in lower portion of range)
         
-        ELSE IF Sentiment_Score(t) in [4, 6]:
+        ELSE:  [Sentiment_Score(t) in (3.5, 6.5) — no gaps, no other cases]
             Proceed to Level 2 (numerical comparison)
     
     Level 2 - Numerical Comparison (Secondary):
@@ -563,7 +654,9 @@ Define Bias(t) using hierarchical logic:
                 Bias(t) = "Neutral"
 
 Consistency Check (HARD):
-    Bias must align with Exact positioning:
+    Bias must align with Exact positioning
+    (use the precomputed markers from DERIVED_METRICS: "lower 40%" means
+    Exact < P40; "upper 40%" means Exact > P60 — no percentage arithmetic):
         IF Bias = "Higher" AND Exact in lower 40% of Range:
             Flag BIAS_POSITIONING_CONFLICT: <ticker>
             LLM must append explanation: "Bias determined as Higher by [Level X logic], 
@@ -575,6 +668,22 @@ Consistency Check (HARD):
             LLM must append explanation: "Bias determined as Lower by [Level X logic], 
             but Exact positioned optimistically at [percentile] of ML range due to 
             [specific catalyst]."
+
+Range-Constrained Bias Rule (HARD; canonical resolution — takes precedence over Level 1):
+    Applies when sentiment direction and the ML range physically conflict:
+        IF Sentiment_Score(t) <= 3.5 AND Range_Lo(t) > Current(t):
+            Bias(t) = sign of (Exact(t) − Current(t))   [normally "Higher"]
+        IF Sentiment_Score(t) >= 6.5 AND Range_Hi(t) < Current(t):
+            Bias(t) = sign of (Exact(t) − Current(t))   [normally "Lower"]
+    In both cases:
+        - Flag RANGE_CONSTRAINED_BIAS: <ticker>
+        - Append EXACTLY this sentence (fill brackets; do not improvise variants):
+          "Sentiment ([score]) points [direction A], but the ML ensemble range
+          [[Range_Lo]–[Range_Hi]] lies entirely [above/below] Current ([Current]);
+          per Range-Constrained Bias Rule, Bias follows the range: [Bias]."
+        - This is NOT a BIAS_POSITIONING_CONFLICT; do not raise both flags.
+    Purpose: one deterministic outcome for the sentiment-vs-range conflict,
+    identical across all models. No per-model improvisation is permitted.
 
 Bias Gate (HARD; single source of truth for Bias everywhere):
 - Compute Bias(t) per the rule above ONCE and treat it as canonical.
@@ -593,7 +702,9 @@ Projection text must match Bias (no contradictory wording).
 AXIOM 3 — SYNTHESIS_STAGING (HARD)
 ────────────────────────────────────────────────────────
 Generate the report in the following stages, in order (do not skip):
-Stage 0 — Compute windows/dates from ASOF + NYSE calendar (no guessing).
+Stage 0 — Execute the CALENDAR GATE (see Pipeline Parameters) FIRST, then compute
+          windows/dates from ASOF + NYSE_CALENDAR_2026 (no guessing).
+          EFFECTIVE_TRADING_DAYS govern all downstream date logic.
 Stage 1 — Web research pass (allowed only under source gating) to build and freeze:
           - Per-ticker Event Ledger for:
             (a) Recent Major Events (≤7 calendar days)
@@ -603,11 +714,18 @@ Stage 1 — Web research pass (allowed only under source gating) to build and fr
 Stage 2 — Structural extraction (no web):
           - summarize SVL (Hurst regime, regime-change flags, Trend10D, Williams)
           - summarize TDA (H1 proxies + "cycle-structure risk" interpretation)
-          - If TDA_CONTEXT is missing or blank: set TDA_AVAILABLE = false.
+          - TDA availability is a 3-STATE decision (HARD):
+            * TDA_UNAVAILABLE — TDA_CONTEXT block absent or blank → TDA_AVAILABLE = false.
+            * TDA_WEAK — TDA_CONTEXT present but H1_label = H1_NONE → TDA_AVAILABLE = true.
+              Structure_Signal defaults to NEUTRAL_STRUCTURE unless the entropy rule
+              (H1_Entropy > 2.50) fires. No StructuralAdjustment cap. TDA may be cited.
+            * TDA_ACTIVE — TDA_CONTEXT present with non-NONE H1 features → TDA_AVAILABLE = true.
+            Rule of interpretation (verbatim): "H1_NONE means available but weak — never unavailable."
+            Never set TDA_AVAILABLE = false because of H1_NONE labels.
 Stage 3 — Forecast spine anchoring (no web):
-          - Exact = LLM-generated (sentiment-driven positioning within ML_Range, using Workflow Step 1 sentiment inputs)
-          - Range = Range Builder (with Range–Exact constraint enforcement)
-          - dispersion/outliers via median+MAD (Operational Standard Rule 13–14)
+          - Exact = LLM-generated (sentiment-driven positioning within ML_Range, using Workflow Step 1 sentiment inputs; select within the precomputed placement-zone interval from DERIVED_METRICS)
+          - Range = quoted from DERIVED_METRICS (Range Builder is the definition of record; Range–Exact constraint enforcement applies)
+          - dispersion/outliers quoted from DERIVED_METRICS (Rule 13–14 values; no computation)
           - consume Step 1 sentiment package; do not generate or override market sentiment in this stage
 Stage 4 — Coupled validation (structure ↔ events ↔ dispersion ↔ supplied sentiment):
           - Define equities_bullish (deterministic; for CoherenceScore penalty):
@@ -639,6 +757,27 @@ Stage 7 — QA pass:
           - numeric formatting
           - citations completeness for non-user facts
           - Event time policy enforced
+          - CALENDAR_GATE_LOCK: forecast dates == FH dates with every non-trading day marked
+            "N/A (market closed)"; CALENDAR_NOTE present in the Report Header whenever any
+            FH date was superseded; no Range/Exact emitted for a closed day.
+            If Day+3 was superseded: verify DAY+2 FALLBACK was applied everywhere —
+            ML_Reference and FH_sign cite FH_Day2; outlier/divergence/Range Builder
+            use the provided Day-3 model set re-labeled to the last effective session
+            (no invented per-model Day-2 values); final-day projections equal the
+            Day+2 forecast.
+          - DISCREPANCY_SWEEP_LOCK: the Discrepancy Sweep Table exists with all 6 rows;
+            every NOTE_REQUIRED=Y ticker has a Discrepancy Note; every NOTE_REQUIRED=N
+            ticker has none.
+          - ROW_ORDER_LOCK: Executive Summary & Final Forecasts rows appear exactly in the
+            order SPX, DJI, QQQ, VIX, TNX, AAPL (same order as per-ticker sections).
+          - FINAL_TABLE_LOCK: the end-of-report Final Three-Day Forecasts Table exists and
+            contains all 6 tickers × all FH dates (closed days as "N/A (market closed)").
+          - DERIVED_METRICS_LOCK: every value covered by the injected DERIVED_METRICS
+            block (median/MAD/MAD_floor/outliers/dispersion trigger/Range/zone markers/
+            pivot proximity/ATR%/indicator zones) appears in the report EXACTLY as
+            injected — same digits, no re-rounding. Any recomputed or deviating value:
+            flag FACT_LOCK_FAIL: DERIVED_METRICS_RECOMPUTED <ticker> and correct to the
+            injected value.
           - If TDA_AVAILABLE=false: enforce a hard rule:
             Any "TDA" mention inside Scenario Analysis "Structural Conditions" cell triggers QA failure and must be removed.
 
@@ -651,9 +790,12 @@ Stage 7 — QA pass:
           
           2) SENTIMENT_CONSISTENCY_LOCK:
              - For all tickers: Verify Exact positioning aligns with supplied Sentiment_Score
-             - Check logic:
-                 IF Sentiment >= 7: Exact should be in upper 50% of Range
-                 IF Sentiment <= 4: Exact should be in lower 50% of Range
+             - Check logic (thresholds match the Level 1 bias buckets; use the
+               precomputed P50 marker from DERIVED_METRICS — no arithmetic):
+                 IF Sentiment >= 6.5: Exact should be > P50
+                 IF Sentiment <= 3.5: Exact should be < P50
+             - Exempt: tickers flagged RANGE_CONSTRAINED_BIAS or BOUNDARY_CONSTRAINED
+               (their mandatory explanation sentence already covers the divergence)
              - If violated: flag FACT_LOCK_FAIL: SENTIMENT_CONSISTENCY_LOCK <ticker>
              - Correct: Require LLM to append justification explaining divergence
           
@@ -754,6 +896,19 @@ Rule Set A — Volatility Structure Assessment:
 
 Rule Set B — Regime Flip Probability Assessment:
 
+    Data Pre-Flight (HARD; check BEFORE any computation):
+        IF Persistence_Sequence / Count_Sequence (Last10 windows) are NOT present
+        in the supplied TDA_CONTEXT block:
+            TDA_Flip_Risk = "INDETERMINATE"
+            Print EXACTLY this sentence in the Flip Triggers subsection:
+            "TDA_Flip_Risk: INDETERMINATE (sequence data not provided)."
+            Do NOT estimate flip risk from the single-snapshot metrics.
+            Do NOT improvise a flip-risk narrative.
+            Do NOT apply any StructuralAdjustment cap on this basis.
+            Weight mechanical vs fundamental triggers using SVL signals only.
+            Skip the Input Time Series, Computation and Classification Logic below.
+        ELSE: proceed with the full Rule Set B.
+
     Input Time Series (Last10 windows from TDA_CONTEXT):
         Persistence_Sequence = [H1_MaxPersistence values over 10 most recent windows]
         Count_Sequence = [H1_CountAbove values over 10 most recent windows]
@@ -808,14 +963,27 @@ Integration Requirements:
         Daily close below S1 ([value]) with <0.5×ATR penetration would signal 
         regime transition."
     
-    3. If TDA_AVAILABLE = false:
-        Skip all TDA integration.
-        Do not reference cycle structure or topological metrics.
-        Cap StructuralAdjustment to ±1 per existing rule.
+    3. TDA state handling (3-state; HARD):
+        - TDA_UNAVAILABLE (TDA_CONTEXT absent/blank; TDA_AVAILABLE = false):
+          skip all TDA integration; do not reference cycle structure or topological
+          metrics; cap StructuralAdjustment to ±1 per existing rule.
+        - TDA_WEAK (present, H1_label = H1_NONE; TDA_AVAILABLE = true):
+          TDA IS available. Structure_Signal = NEUTRAL_STRUCTURE (unless the entropy
+          rule fires). NO StructuralAdjustment cap. TDA may be cited in prose.
+          Never describe TDA as "unavailable", "missing", or "disabled".
+        - TDA_ACTIVE (TDA_AVAILABLE = true): full integration per Rule Sets A and B.
+        - In all states, if sequence data is absent, TDA_Flip_Risk = INDETERMINATE
+          per the Rule Set B Data Pre-Flight (fixed sentence; no improvisation).
 
 ────────────────────────────────────────────────────────
 OUTPUT REQUIREMENTS (STRICT ORDER; TABLE SCHEMAS)
 ────────────────────────────────────────────────────────
+
+LAYOUT RULES (presentation only; no content is dropped by these rules):
+- Tables are never embedded inside sentences or list items; every table starts on its own line.
+- One blank line before and after every table (separating it from prose).
+- Per-ticker prose stays within the 450–550 word parity target; depth is added by
+  substance within required subsections, not by merging tables into paragraphs.
 
 I) GENERAL SECTION
 
@@ -825,6 +993,7 @@ I) GENERAL SECTION
 **Forecast Period:** [ET dates: Day+1..Day+3]
 **Team Lead:** Multi-disciplinary Financial Analysis Panel
 **Timezone Note:** Event times are in ET; user local time: Europe/Zagreb.
+**Calendar Note:** [CALENDAR_NOTE from the Calendar Gate if any FH date was superseded; otherwise "All FH dates are NYSE trading days."]
 
 2) Executive Summary & Final Forecasts (TABLE; schema v2; REQUIRED)
 | Ticker | Current Value | Forecast Range<br>---<br>**Exact** | Bias<br>---<br>Projection | Rationale |
@@ -951,6 +1120,9 @@ Hard rules:
    Interpretation = MISSING_USER_INPUT
    Actionable Takeaway = MISSING_USER_INPUT
 2) Interpretations must follow the deterministic baseline bands below (do not invent dynamic thresholds).
+   When the DERIVED_METRICS block supplies a Zone for an indicator, QUOTE that zone
+   verbatim as the classification — the bands below remain the definition of record
+   and the fallback when a Zone is ABSENT.
 3) If you compute any derived metric, you must:
    - show its formula inline in Interpretation
    - tag it as DERIVED_METRIC
@@ -970,7 +1142,8 @@ Deterministic interpretation bands (baseline):
 - 50-DMA & 200-DMA: price above = bullish bias, below = bearish bias (state "bias", not certainty)
 
 Mandatory derived metric (if ATR and Current Value exist):
-- ATR% = ATR(14) / Current Value  (DERIVED_METRIC)
+- ATR% is supplied in DERIVED_METRICS — quote it (NO-COMPUTE RULE).
+  Only if ABSENT there: ATR% = ATR(14) / Current Value (DERIVED_METRIC; show formula).
   Report as percent to two decimals for <1000 tickers; for >=1000 tickers still show two decimals.
 
 Row set (must appear exactly in this order):
@@ -1021,11 +1194,11 @@ Ticker-specific constraint:
 - For TNX, interpret direction in yield terms, but keep the same table rows and rules.
 
 ### Econometric Analysis (ARIMA/ARIMAX)
-Describe setup (order, exogs), cite diagnostics as provided, state Day-3 forecast + CI from user table.
+Describe setup (order, exogs), cite diagnostics as provided, state Day-3 forecast + CI from user table (under DAY+2 FALLBACK: note once that it applies to the last effective session).
 No recomputation.
 
 ### Machine-Learning Forecast Note (no averaging)
-Enumerate all model Day-3 outputs exactly as provided (include missing as MISSING_MODEL_OUTPUT).
+Enumerate all model Day-3 outputs exactly as provided (include missing as MISSING_MODEL_OUTPUT); under DAY+2 FALLBACK enumerate the same provided Day-3 outputs and state once that they apply to the last effective session.
 Apply divergence/outlier rules via median+MAD (Operational Standard Rule 13–14).
 No averaging.
 
@@ -1102,7 +1275,7 @@ Translate pivots + ATR/ADX posture into deterministic stops/targets/size guidanc
 | **Econometric Insight**   | one-liner                          |
 | **ML Insight**            | one-liner                          |
 
-### Discrepancy Note (ONLY IF Yahoo ≠ Investing)
+### Discrepancy Note (REQUIRED IFF NOTE_REQUIRED = Y in the Discrepancy Sweep Table)
 Include as specified in Close Precedence protocol.
 
 OPTIONAL: Structural Spotlight (only if StructuralSpotlight=true)
@@ -1156,6 +1329,10 @@ Treatment Rules:
 ## TDA_CONTEXT (H1 cycles from 60D return embeddings)
 
 ==[APPEND THE ORIGINAL TDA_CONTEXT BLOCK EXACTLY AS SUPPLIED, UNCHANGED]==
+
+## DERIVED_METRICS (GROUND TRUTH; per-ticker; from 27_DERIVED_METRICS_Template)
+
+==[APPEND THE FILLED DERIVED_METRICS BLOCKS EXACTLY AS SUPPLIED, UNCHANGED]==
 
 ## FH table (canonical for Exact)
 

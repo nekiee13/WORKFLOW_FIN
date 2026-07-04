@@ -5,6 +5,11 @@ I'm providing the evaluation framework. Acknowledge receipt and confirm you're r
 # 3-Report Logic Evaluation
 # Single Inference Call Architecture
 # Ready for Phase 0 → Phase 1 execution
+#
+# NORMATIVE AUTHORITY: this document is the single source of truth for the
+# evaluation rubric. 70_REPORT_REVIEW_MANUAL is explanatory commentary only;
+# on any disagreement, THIS document wins. Deductions must additionally map to
+# a 28_QUERY requirement per the Grading Contract (70 §7.4).
 
 =================================================================
 # CORE AXIOMS
@@ -20,8 +25,18 @@ Third-person perspective is required. Personal pronouns are avoided. Sentences r
 
 ## A3. TRACEABILITY
 
-Every non-user claim requires an EvidencePointer in the format:
+SCOPE (HARD): the EvidencePointer format binds the EVALUATOR'S OWN claims only
+(CER ledger entries, issues, stress tests, contradiction analyses).
+
+Every non-user claim made BY THE EVALUATOR requires an EvidencePointer in the format:
 \[Rk|Sec="..."|Span=START:END|Quote="first 8-12 words"]
+
+Generated reports (R1..RN) are NOT required to use EvidencePointer format.
+Reports are graded only against the citation rules of 28\_QUERY (local \[^n]
+footnotes; issuer-first sourcing; footnote list resolution). A traceability\_gap
+deduction may be charged ONLY for a violation of 28\_QUERY's own citation rules,
+per the Grading Contract (70\_REPORT\_REVIEW\_MANUAL). Never deduct because a
+report's citations are "citation-style rather than EvidencePointer".
 
 ## A4. DETERMINISM
 
@@ -172,7 +187,7 @@ Section C Errors:
 * inconsistent\_definitions: -1.5 points
 * schema\_omission: -3.0 points
 * undeclared\_assumption: -1.5 points
-* traceability\_gap: -1.5 points
+* traceability\_gap: -1.5 points (chargeable ONLY for violations of 28\_QUERY's citation rules; see A3 SCOPE)
 
 Section D Errors:
 
@@ -181,9 +196,12 @@ Section D Errors:
 * missing\_limitations: -1.5 points
 * decision\_guidance\_detached: -1.5 points
 
-Self-Audit Credit:
-If a report explicitly acknowledges an error and adjusts its conclusion:
-deduction × 0.5
+Self-Audit Credit (STRICT):
+The × 0.5 credit applies ONLY IF the report both (a) explicitly acknowledges the
+error AND (b) adjusts the affected conclusion/output accordingly.
+Disclosure WITHOUT resolution (error acknowledged but conclusion left unchanged)
+takes the FULL deduction, plus a note: "disclosed-unresolved". Transparency about
+an unfixed error must never outrank a report that fixed it.
 
 Scoring Formula:
 section\_score = MAX(section\_max - Σ(error\_count × deduction), 0.2 × section\_max)
@@ -196,6 +214,38 @@ Section maximums:
 * D = 15
 
 weighted\_total = A + B + C + D
+
+=================================================================
+# W0: FACT_CHECK WORKSHEET (MANDATORY; PRODUCE BEFORE ANY DECISION TREE)
+=================================================================
+
+Purpose: numeric violations get missed when extraction and judgment happen in one
+interleaved pass. Split them. W0 is produced FIRST, before the CER ledger.
+
+PASS 1 — TRANSCRIPTION ONLY (no judgment, no commentary):
+For each report × ticker, copy values EXACTLY as printed in the report:
+
+| Report | Ticker | Range\_Lo | Range\_Hi | Exact | Bias | Current | Band claims (verbatim) | Forecast dates |
+
+Do not round, correct, or interpret during Pass 1. Missing value = "ABSENT".
+
+PASS 2 — MECHANICAL CHECKS (row by row; one question at a time):
+Append per row:
+
+* RANGE\_OK: Exact ∈ \[Range\_Lo, Range\_Hi\]? (Y/N)
+* BIAS\_OK: Bias sign consistent with (Exact − Current)? (Y/N; respect documented
+  RANGE\_CONSTRAINED\_BIAS / BOUNDARY\_CONSTRAINED exemptions)
+* BAND\_OK: each band claim matches the deterministic band definitions? (Y/N per claim)
+* CALENDAR\_OK: forecast dates comply with the CALENDAR STANDARD (Phase 0)? (Y/N)
+
+RULES:
+
+* Tree 3 and Tree 4 findings may ONLY be triggered from W0 rows; no numeric
+  finding may bypass the worksheet, and every numeric issue in the final output
+  must cite its W0 row.
+* Every N in Pass 2 must produce a corresponding Issue Log entry.
+* If transcription is uncertain, mark the row TRANSCRIPTION\_UNCERTAIN and charge
+  no deduction from it.
 
 =================================================================
 # ERROR RECOGNITION DECISION TREES
@@ -241,11 +291,11 @@ SEVERITY:
 
 ## Tree 3: Numeric Inconsistency
 
-TRIGGER:
+TRIGGER (from W0 worksheet rows ONLY; never from ad-hoc recomputation):
 
-1. Report states Range = \[Lo, Hi]
-2. Report states Exact = E
-3. E < Lo or E > Hi
+1. W0 row has RANGE\_OK = N, or
+2. W0 row has BIAS\_OK = N without a documented exemption, or
+3. W0 row has BAND\_OK = N
 
 SEVERITY:
 
@@ -259,6 +309,7 @@ TRIGGER:
 
 1. Required subsection missing from ticker section
 2. Required table missing from Executive Summary or Final Forecasts
+   (confirm numeric-table absences against W0 "ABSENT" entries)
 
 SEVERITY:
 
@@ -353,6 +404,7 @@ grade(category) = band(category\_total / category\_max)
 # REQUIRED WORK PRODUCTS FOR 3 REPORTS
 =================================================================
 
+W0. FACT\_CHECK Worksheet (transcription + mechanical checks; produced FIRST)
 W1. Report Map for R1-R3
 W2. CER Ledger, 10-25 claims per report
 W3. Detailed Scorecards for R1-R3
@@ -392,9 +444,39 @@ IF missing:
 OUTPUT: MISSING\_USER\_INPUT: \<field\_name>
 SET field\_value = NULL
 
-IF TDA\_CONTEXT is missing or blank:
-SET TDA\_AVAILABLE = false
+TDA availability is a 3-STATE decision (HARD; must match 29\_QUERY\_Template):
+
+IF TDA\_CONTEXT block is absent or blank:
+STATE = TDA\_UNAVAILABLE; SET TDA\_AVAILABLE = false
 OUTPUT: "TDA analysis disabled; StructuralAdjustment capped at ±1"
+
+ELSE IF TDA\_CONTEXT is present but H1\_label = H1\_NONE:
+STATE = TDA\_WEAK; SET TDA\_AVAILABLE = true
+OUTPUT: "TDA available but weak (H1\_NONE); expected report behavior:
+NEUTRAL\_STRUCTURE unless entropy rule fires; NO StructuralAdjustment cap;
+TDA citations permitted."
+Rule of interpretation (verbatim): "H1\_NONE means available but weak — never unavailable."
+Do NOT penalize a report for citing TDA in this state; DO penalize a report
+that declares TDA "unavailable/missing/disabled" in this state.
+
+ELSE:
+STATE = TDA\_ACTIVE; SET TDA\_AVAILABLE = true
+
+ADDITIONALLY (any state): IF Persistence\_Sequence / Count\_Sequence (Last10) are
+absent from TDA\_CONTEXT, the correct report behavior for Rule Set B is
+"TDA\_Flip\_Risk: INDETERMINATE (sequence data not provided)." — grade flip-risk
+handling against THAT standard, not against the full Rule Set B computation.
+
+CALENDAR STANDARD (HARD; must match 29\_QUERY\_Template):
+IF FH\_Date3 is a non-trading day (NYSE holiday or weekend), the CORRECT report
+behavior is: Day+3 cells read "N/A (market closed)" AND the DAY+2 FALLBACK is
+applied — anchors (ML\_Reference, FH\_sign, final-day projections) use FH\_Day2;
+the outlier/divergence rules and Range Builder keep the provided Day-3 model set,
+re-labeled as applying to the last effective session (per-model Day-2 values do
+not exist in the input and must not be invented or rescaled).
+Do NOT penalize a report for the fallback itself; DO penalize a report that emits
+numeric Day+3 forecasts for a closed day, silently truncates the horizon, mixes
+Day+3 anchors with Day+2 projections, or fabricates per-model Day-2 forecasts.
 
 OUTPUT:
 validation\_summary.json
