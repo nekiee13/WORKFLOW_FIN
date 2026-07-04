@@ -96,18 +96,20 @@ User-Supplied Data Policy (NON-NEGOTIABLE)
 - If any user-supplied field needed by the schema is absent, print MISSING_USER_INPUT and continue.
 - Derived metrics computed solely from user-supplied values are permitted if formula is stated (e.g., ATR% = ATR/Price) and flagged as DERIVED_METRIC.
 
-DERIVED_METRICS (GROUND TRUTH) Contract (HARD)
-- The user supplies a per-ticker DERIVED_METRICS block (median_P, MAD, MAD_floor,
-  outlier flags, dispersion trigger, Range_Lo/Range_Hi + branch fired, placement-zone
-  markers P20..P80, pivot proximity, 0.10×ATR, 0.25×ATR, ATR%, indicator zones).
-- These values are GROUND TRUTH with the same standing as closes and indicators.
-- NO-COMPUTE RULE: for every field covered by the block, the LLM performs NO
-  arithmetic — no recomputation, no verification math, no re-rounding. Quote and
-  interpret only. Recomputing a covered field is a QA failure:
-  FACT_LOCK_FAIL: DERIVED_METRICS_RECOMPUTED <ticker>.
-- If the block is absent, or a specific field is ABSENT: print
-  MISSING_USER_INPUT: DERIVED_METRICS(<ticker>.<field>) and only then apply the
-  legacy formula for that field, flagged DERIVED_METRIC per the rule above.
+CALC_WORKSHEET Contract (HARD; compute ONLY missing data, once, quote everywhere)
+- MISSING-DATA PRINCIPLE: computation is permitted ONLY for quantities that do not
+  exist in the user inputs. Any value present in 10_Calculations / SVL / TDA /
+  FH table is QUOTED, never recomputed.
+- The missing derived quantities (median_P, MAD, MAD_floor incl. 0.10×ATR,
+  outlier tests, dispersion trigger, percentile positions, Range_Lo/Range_Hi,
+  placement markers, target zone, ATR%, 0.25×ATR + pivot proximity) are computed
+  EXACTLY ONCE per ticker, inside the mandatory CALC WORKSHEET (Calculation
+  Appendix; schema in Output Requirements), with every intermediate step shown.
+- Everywhere else in the report these values are QUOTED from the worksheet —
+  never recomputed inline. A body value that differs from the worksheet is a QA
+  failure: FACT_LOCK_FAIL: WORKSHEET_MISMATCH <ticker>.
+- No derived value may originate anywhere except the worksheet; no inline
+  arithmetic in prose or tables.
 
 Close Precedence & Discrepancy Protocol (HARD)
 - Yahoo Finance close is canonical.
@@ -279,22 +281,23 @@ Applies inside each ticker's "### Visual Chart Analysis & Regions" subsection on
 12) Close-confirmation rule (deterministic):
    - "Break" = daily close beyond pivot by ≥ 0.25×ATR
    - "Hold" = daily close within ±0.25×ATR and rejection wick implied by next-day reversal is NOT allowed (no candlesticks yet); instead use "failed follow-through next day".
-13) Outlier rule (QUOTE from DERIVED_METRICS; do not compute):
-   - median_P, MAD, MAD_floor, and the Outlier list are supplied in the injected
-     DERIVED_METRICS block. Quote them as ground truth (NO-COMPUTE RULE).
-   - Definitions of record (how the user computed them; not for LLM execution):
-     P = available Day-3 point forecasts; m = median(P); MAD = median(|Pi − m|);
-     MAD_floor = max(MAD, 0.10×ATR); Outlier: |Pi − m| ≥ 3.00×MAD_floor.
-   - If Day+3 is non-trading: the supplied values are built from the Day-3 model set,
-     re-labeled as applying to the last effective session (DAY+2 FALLBACK; per-model
-     Day-2 values are not provided and must not be invented).
-   - Only if DERIVED_METRICS is ABSENT for a field: print MISSING_USER_INPUT and
-     apply the definition of record as legacy fallback, flagged DERIVED_METRIC.
-14) Divergence statement trigger (QUOTE from DERIVED_METRICS):
-   - The Dispersion trigger (NO / YES + which rule fired) is supplied in
-     DERIVED_METRICS. Insert a Divergence Note if and only if it says YES.
-   - Definitions of record: (a) Wide dispersion: (max(P) − min(P)) ≥
-     max(1.50×ATR, 4.00×MAD_floor); (b) any Outlier per Rule 13.
+13) Outlier rule (median + MAD; computed ONCE in the CALC WORKSHEET, quoted elsewhere):
+   - In the worksheet, per ticker, with work shown at each step:
+     * list P = available Day-3 point forecasts, sorted ascending, models named;
+     * median_P = middle value (n odd) or mean of the two middle values (n even) —
+       state which position(s) were used;
+     * list |Pi − median_P| sorted ascending; MAD = middle value (same convention);
+     * MAD_floor = max(MAD, 0.10×ATR) — show both operands;
+     * per-model outlier test: |Pi − median_P| ≥ 3.00×MAD_floor — show the
+       threshold value once, then Y/N per model.
+   - If Day+3 is non-trading: P stays the provided Day-3 model set, re-labeled as
+     applying to the last effective session (DAY+2 FALLBACK; per-model Day-2 values
+     are not provided and must not be invented).
+14) Divergence statement trigger (deterministic; MAD-aligned; evaluated in the
+    CALC WORKSHEET with operands shown):
+   Insert a Divergence Note if either holds:
+   (a) Wide dispersion: (max(P) − min(P)) ≥ max(1.50×ATR, 4.00×MAD_floor)
+   (b) Any Outlier exists per Rule 13
    Divergence Note must:
    - name the outlier model(s)
    - state one dominance condition (mechanical pivot trigger OR specific event)
@@ -370,6 +373,7 @@ Hard-required global blocks (must appear once, in order):
 (6) Per-ticker sections in fixed order: SPX → DJI → QQQ → VIX → TNX → AAPL
 (7) Final Three-Day Forecasts Table (end-of-report; exact schema)
 (8) References (footnotes resolved)
+(9) Calculation Appendix — CALC WORKSHEET (per ticker; schema in Output Requirements; computes ONLY missing data)
 
 Hard-required per-ticker subsections (must appear for every ticker, in order):
 (a) Forecast Header line (Current | 3-Day range + exact)
@@ -452,9 +456,9 @@ For every ticker t:
     
     Step 3: Generate LLM Forecast Positioning
         The LLM shall position Exact(t) within ML_Range(t) using the following logic.
-        Zone boundaries are NOT computed: use the precomputed placement-zone markers
-        (P20/P30/P40/P50/P60/P70/P80) from DERIVED_METRICS to identify each zone's
-        interval, then select Exact inside it.
+        Zone boundaries are computed ONCE in the CALC WORKSHEET
+        (marker = Range_Lo + f × (Range_Hi − Range_Lo), operands shown, only for the
+        markers actually needed) and quoted here; never recomputed inline.
         
         IF Sentiment_Score(t) >= 7:
             Target_Zone = upper 30% of ML_Range
@@ -515,13 +519,16 @@ For every ticker t:
         - IF Exact > ML_Reference: "Positioned above ML reference due to [reasoning]"
 
 Range Builder:
-CONSUMPTION RULE (HARD): Range_Lo(t), Range_Hi(t), the branch fired, and the
-placement-zone markers (P20..P80) are supplied in the injected DERIVED_METRICS
-block — quote them as ground truth (NO-COMPUTE RULE). The logic below is the
-DEFINITION OF RECORD for how the user computes them; the LLM does not execute it.
-Exception: branch D (|P| < 3) cannot be precomputed because it depends on Exact —
-in that case DERIVED_METRICS marks the Range fields ABSENT and the LLM applies the
-branch-D formula below, flagged DERIVED_METRIC.
+COMPUTATION RULE (HARD): Range_Lo(t), Range_Hi(t), the branch fired, and the
+placement markers are computed ONCE per ticker in the CALC WORKSHEET (operands
+shown) and QUOTED everywhere else in the report.
+PERCENTILE METHOD (pinned; removes silent cross-model divergence): use the
+NEAREST-RANK method on the ascending sorted P:
+  Pk = the value at position ceil((k/100) × n), where n = |P|.
+No interpolation, no averaging between ranks. Example, n = 8:
+  P20 → position ceil(1.6) = 2;  P25 → position 2;  P75 → position 6;
+  P80 → position ceil(6.4) = 7.
+State n and the resulting positions in the worksheet before quoting the values.
 
 Let P(t) = set of available Day-3 point forecasts for ticker t from the user "Forecasting results (Day 3)" tables
 (PyCaret/ARIMAX/PCE/LSTM/GARCH/VAR/RW/ETS where present).
@@ -655,8 +662,8 @@ Define Bias(t) using hierarchical logic:
 
 Consistency Check (HARD):
     Bias must align with Exact positioning
-    (use the precomputed markers from DERIVED_METRICS: "lower 40%" means
-    Exact < P40; "upper 40%" means Exact > P60 — no percentage arithmetic):
+    (use the P40/P60 markers from the CALC WORKSHEET: "lower 40%" means
+    Exact < P40; "upper 40%" means Exact > P60 — no inline percentage arithmetic):
         IF Bias = "Higher" AND Exact in lower 40% of Range:
             Flag BIAS_POSITIONING_CONFLICT: <ticker>
             LLM must append explanation: "Bias determined as Higher by [Level X logic], 
@@ -723,9 +730,9 @@ Stage 2 — Structural extraction (no web):
             Rule of interpretation (verbatim): "H1_NONE means available but weak — never unavailable."
             Never set TDA_AVAILABLE = false because of H1_NONE labels.
 Stage 3 — Forecast spine anchoring (no web):
-          - Exact = LLM-generated (sentiment-driven positioning within ML_Range, using Workflow Step 1 sentiment inputs; select within the precomputed placement-zone interval from DERIVED_METRICS)
-          - Range = quoted from DERIVED_METRICS (Range Builder is the definition of record; Range–Exact constraint enforcement applies)
-          - dispersion/outliers quoted from DERIVED_METRICS (Rule 13–14 values; no computation)
+          - Exact = LLM-generated (sentiment-driven positioning within ML_Range, using Workflow Step 1 sentiment inputs; select within the target-zone interval computed in the CALC WORKSHEET)
+          - Range = quoted from the CALC WORKSHEET (computed there once per Range Builder rules; Range–Exact constraint enforcement applies)
+          - dispersion/outliers quoted from the CALC WORKSHEET (Rule 13–14, computed there once)
           - consume Step 1 sentiment package; do not generate or override market sentiment in this stage
 Stage 4 — Coupled validation (structure ↔ events ↔ dispersion ↔ supplied sentiment):
           - Define equities_bullish (deterministic; for CoherenceScore penalty):
@@ -772,12 +779,12 @@ Stage 7 — QA pass:
             order SPX, DJI, QQQ, VIX, TNX, AAPL (same order as per-ticker sections).
           - FINAL_TABLE_LOCK: the end-of-report Final Three-Day Forecasts Table exists and
             contains all 6 tickers × all FH dates (closed days as "N/A (market closed)").
-          - DERIVED_METRICS_LOCK: every value covered by the injected DERIVED_METRICS
-            block (median/MAD/MAD_floor/outliers/dispersion trigger/Range/zone markers/
-            pivot proximity/ATR%/indicator zones) appears in the report EXACTLY as
-            injected — same digits, no re-rounding. Any recomputed or deviating value:
-            flag FACT_LOCK_FAIL: DERIVED_METRICS_RECOMPUTED <ticker> and correct to the
-            injected value.
+          - WORKSHEET_CONSISTENCY_LOCK: every derived value in the report body
+            (median/MAD/MAD_floor/outliers/dispersion trigger/Range/placement markers/
+            ATR%/pivot proximity) matches the CALC WORKSHEET exactly — same digits,
+            no re-rounding. Mismatch: flag FACT_LOCK_FAIL: WORKSHEET_MISMATCH <ticker>
+            and correct the body to the worksheet value (if the worksheet itself
+            miscopied an input, fix the worksheet first, then re-run affected checks).
           - If TDA_AVAILABLE=false: enforce a hard rule:
             Any "TDA" mention inside Scenario Analysis "Structural Conditions" cell triggers QA failure and must be removed.
 
@@ -791,7 +798,7 @@ Stage 7 — QA pass:
           2) SENTIMENT_CONSISTENCY_LOCK:
              - For all tickers: Verify Exact positioning aligns with supplied Sentiment_Score
              - Check logic (thresholds match the Level 1 bias buckets; use the
-               precomputed P50 marker from DERIVED_METRICS — no arithmetic):
+               P50 marker from the CALC WORKSHEET — no inline arithmetic):
                  IF Sentiment >= 6.5: Exact should be > P50
                  IF Sentiment <= 3.5: Exact should be < P50
              - Exempt: tickers flagged RANGE_CONSTRAINED_BIAS or BOUNDARY_CONSTRAINED
@@ -985,6 +992,30 @@ LAYOUT RULES (presentation only; no content is dropped by these rules):
 - Per-ticker prose stays within the 450–550 word parity target; depth is added by
   substance within required subsections, not by merging tables into paragraphs.
 
+CALC WORKSHEET (Calculation Appendix; REQUIRED global block (9); placed after References):
+Principle: computation is allowed ONLY for data missing from the inputs. Rows marked
+QUOTE are copied from user inputs; rows marked COMPUTE are the missing data, each with
+operands shown. One compact block per ticker; excluded from the 450–550-word parity counts.
+
+Schema per ticker (fixed row order; all rows mandatory):
+| # | Item | Source | Work shown | Result |
+|---|---|---|---|---|
+| 1 | P sorted ascending (models named) | QUOTE (10_Calculations) | sorted list | n = count |
+| 2 | median_P | COMPUTE | middle position(s) used | value |
+| 3 | Deviations \|Pi − median_P\| sorted | COMPUTE | list | — |
+| 4 | MAD | COMPUTE | middle position(s) used | value |
+| 5 | 0.10×ATR (ATR quoted) | COMPUTE | operands | value |
+| 6 | MAD_floor = max(MAD, 0.10×ATR) | COMPUTE | both operands | value |
+| 7 | Outlier threshold 3.00×MAD_floor; test per model | COMPUTE | threshold; Y/N per model | list |
+| 8 | Dispersion test: (max−min) vs max(1.50×ATR, 4.00×MAD_floor) | COMPUTE | all operands | YES/NO + rule |
+| 9 | Range branch: Regime (SVL), ADX quoted → A/B/C/D | QUOTE + lookup | condition matched | branch |
+| 10 | Percentile positions (nearest-rank; n stated) | COMPUTE | ceil(k·n/100) | positions |
+| 11 | Range_Lo, Range_Hi | selection from row 1 by row 10 | positions → values | [Lo, Hi] |
+| 12 | Placement markers needed + P40/P50/P60 | COMPUTE | Lo + f×W; W shown | values |
+| 13 | Target zone for Exact | lookup (Step 3 ladder from Sentiment_Score) | score → zone | interval |
+| 14 | ATR% = ATR / Current | COMPUTE | operands | % |
+| 15 | 0.25×ATR; \|Current − Classic_Pivot\|; proximity | COMPUTE | operands | Above/Near/Below |
+
 I) GENERAL SECTION
 
 1) Report Header (use exact template)
@@ -1120,9 +1151,10 @@ Hard rules:
    Interpretation = MISSING_USER_INPUT
    Actionable Takeaway = MISSING_USER_INPUT
 2) Interpretations must follow the deterministic baseline bands below (do not invent dynamic thresholds).
-   When the DERIVED_METRICS block supplies a Zone for an indicator, QUOTE that zone
-   verbatim as the classification — the bands below remain the definition of record
-   and the fallback when a Zone is ABSENT.
+   Zone classification is a LOOKUP, not arithmetic: compare the user-supplied reading
+   to the bands below and QUOTE the matching band row verbatim inside Interpretation
+   (e.g., "Williams %R −25.90 → band '−80 to −20 neutral'"). An interpretation that
+   contradicts its quoted band row is a QA failure.
 3) If you compute any derived metric, you must:
    - show its formula inline in Interpretation
    - tag it as DERIVED_METRIC
@@ -1142,8 +1174,8 @@ Deterministic interpretation bands (baseline):
 - 50-DMA & 200-DMA: price above = bullish bias, below = bearish bias (state "bias", not certainty)
 
 Mandatory derived metric (if ATR and Current Value exist):
-- ATR% is supplied in DERIVED_METRICS — quote it (NO-COMPUTE RULE).
-  Only if ABSENT there: ATR% = ATR(14) / Current Value (DERIVED_METRIC; show formula).
+- ATR% = ATR(14) / Current Value  (DERIVED_METRIC; computed once in the CALC WORKSHEET
+  with operands shown, quoted here).
   Report as percent to two decimals for <1000 tickers; for >=1000 tickers still show two decimals.
 
 Row set (must appear exactly in this order):
@@ -1329,10 +1361,6 @@ Treatment Rules:
 ## TDA_CONTEXT (H1 cycles from 60D return embeddings)
 
 ==[APPEND THE ORIGINAL TDA_CONTEXT BLOCK EXACTLY AS SUPPLIED, UNCHANGED]==
-
-## DERIVED_METRICS (GROUND TRUTH; per-ticker; from 27_DERIVED_METRICS_Template)
-
-==[APPEND THE FILLED DERIVED_METRICS BLOCKS EXACTLY AS SUPPLIED, UNCHANGED]==
 
 ## FH table (canonical for Exact)
 

@@ -237,6 +237,8 @@ Append per row:
   RANGE\_CONSTRAINED\_BIAS / BOUNDARY\_CONSTRAINED exemptions)
 * BAND\_OK: each band claim matches the deterministic band definitions? (Y/N per claim)
 * CALENDAR\_OK: forecast dates comply with the CALENDAR STANDARD (Phase 0)? (Y/N)
+* WORKSHEET\_OK: body values match the report's own CALC WORKSHEET appendix
+  (block 9), where present? (Y/N)
 
 RULES:
 
