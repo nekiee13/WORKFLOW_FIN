@@ -575,6 +575,21 @@ Research & Synthesis Protocol:
 20) Produce Executive Summary table using Models.py FH3 values and integrated confidence logic.
 
 Output Requirements (STRICT ORDER):
+
+PRIORITY CLASSES (HARD; the triage rule — nothing is dropped silently):
+- CORE (must NEVER be omitted, whatever the length pressure):
+  Executive Summary table; Market Sentiment Overview (MSC score + state);
+  per-ticker SentimentBlock with ALL fields; per-ticker Recent Major Events and
+  Upcoming Events tables; SENTIMENT_PACKAGE (final block); SELF-AUDIT CHECKLIST.
+- EXTENDED (include if capacity allows):
+  CurrentEnvironment; GlobalGeopoliticalRiskOverview; PolicyPressureAndTACO;
+  CrossAssetThemes; ScenarioAnalysis; StructuralValidationSummary;
+  GeopoliticalExposureOverlay; SoftIndicatorSummary.
+- If an EXTENDED block is omitted, print SKIPPED: <block> — <one-line reason>
+  exactly where the block would have appeared. Silent omission of ANY block,
+  CORE or EXTENDED, is a contract violation (it must appear as Y or SKIPPED in
+  the SELF-AUDIT CHECKLIST).
+
 I. GENERAL SECTION
 
 1) Executive Summary & Final Forecasts (TABLE; exact schema)
@@ -806,9 +821,59 @@ OPTIONAL: Structural Spotlight (only if enabled=true)
 - Each item cited; references upcoming catalysts if relevant.
 - Futures-aware structural linkage is allowed if it preserves spot primacy and is explicitly caveated when proxy- or basis-sensitive.
 
+────────────────────────────────────────────────────────
+SENTIMENT_PACKAGE (MANDATORY FINAL BLOCK; machine-readable hand-off to Step 2)
+────────────────────────────────────────────────────────
+Purpose: Workflow Step 2 (28_QUERY §SENTIMENT_CONTEXT) parses THIS block — not the
+narrative — as the authoritative source of all sentiment-dependent fields. The
+narrative report remains, but the package is the hand-off artifact. Field names
+must match 28_QUERY exactly.
+
+Emit as the LAST content block (before the SELF-AUDIT CHECKLIST), fenced as yaml,
+one entry per ticker, ALL fields mandatory. A value the report genuinely cannot
+supply → "MISSING: <one-line reason>" (never blank, never omitted).
+
+```yaml
+SENTIMENT_PACKAGE:
+  ASOF: <YYYY-MM-DD>
+  EFFECTIVE_TRADING_DAYS: [<dates from the Calendar Gate>]
+  CALENDAR_NOTE: "<from the Calendar Gate, or 'all FH dates are trading days'>"
+  MSC: {score: <0-10>, state: <Risk-On/Neutral/Mixed-Divergent/Risk-Off>, confidence: <Low/Med/High>}
+  tickers:
+    <TICKER>:
+      Base_Sentiment_Score: <0-10>
+      Structural_Adjustment: <signed decimal>
+      Soft_Adjustment: <signed decimal, within the SoftAdjustment cap>
+      Adjusted_Sentiment_Score: <0-10>   # = Base + Structural + Soft (state the sum)
+      CoherenceScore: <integer>
+      Confidence: <Low/Med/High>
+      Mechanical_Drivers: ["<driver>", "<driver>"]
+      Fundamental_Drivers: ["<driver>", "<driver>"]
+      Catalyst_Flip_Map: "<one sentence: what would flip this ticker's bias>"
+      Sentiment_Rationale: "<one sentence>"
+```
+
+Rules:
+- Numbers only in numeric fields; no prose inside them.
+- Every score must equal the corresponding value in that ticker's narrative
+  SentimentBlock — a mismatch is a contract violation.
+- The package covers the FULL effective horizon (never a single retargeted day);
+  day-specific catalysts belong in Catalyst_Flip_Map and the Upcoming Events tables.
+
+SELF-AUDIT CHECKLIST (MANDATORY; the very last output, after SENTIMENT_PACKAGE):
+| Block | Class (CORE/EXTENDED) | Present (Y / SKIPPED: reason) |
+One row per GeneralSection; one row per TickerSection type (state "×6" when all six
+tickers have it, otherwise list the tickers missing it); final rows for
+SENTIMENT_PACKAGE and this checklist itself.
+A CORE row that is not "Y" invalidates the report — complete the block before
+finishing. This checklist exists to make omissions visible; silent triage is forbidden.
+
 Terminal Condition:
 MarketReportQuality ≥ expert_analyst_threshold
 AND
+- SENTIMENT_PACKAGE present as the last content block, all fields populated per ticker
+- SELF-AUDIT CHECKLIST present; every CORE row = Y
+- report horizon equals EFFECTIVE_TRADING_DAYS (never silently retargeted)
 - zero missing citations
 - dates consistent with injected parameters
 - structural alignment scoring present where required

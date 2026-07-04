@@ -163,12 +163,12 @@ A6. Layout rules + order/schema locks (2.7, 2.8)
 
 **Phase B — arithmetic reliability + hand-off contract:**
 B1. In-report CALC WORKSHEET (compute only missing data; pinned percentile method) + quote-elsewhere rules in 29 (2.3) — ✅ APPLIED 2026-07-04
-B2. SENTIMENT_PACKAGE contract in 17 + consumption wording in 29 (1.1, 1.3) — ⬜ pending
+B2. SENTIMENT_PACKAGE contract in 17 + consumption wording in 29 (1.1, 1.3) — ✅ APPLIED 2026-07-04: 17 gained PRIORITY CLASSES (CORE/EXTENDED with mandatory SKIPPED lines), the fenced-YAML SENTIMENT_PACKAGE final block (all 10 per-ticker fields incl. Soft_Adjustment, plus ASOF/EFFECTIVE_TRADING_DAYS/CALENDAR_NOTE/MSC), the SELF-AUDIT CHECKLIST, and Terminal Condition hooks; 29's SENTIMENT_CONTEXT gained the PARSING RULE (package is authoritative; NARRATIVE_FALLBACK flags; HORIZON_MISMATCH check) and Soft_Adjustment in the field list + pass-through arithmetic
 *Expected effect: eliminates W4 and W7; Step 1 → Step 2 hand-off becomes lossless.*
 
 **Phase C — evaluation quality (prompt/process only):**
 C1. FACT_CHECK transcription→verification worksheet in 72 (or as a tiny pre-pass prompt) (3.3) — ✅ APPLIED 2026-07-04 as mandatory work product W0; Trees 3 & 4 now trigger only from W0 rows
-C2. Cross-batch calibration anchors pasted between batches (3.4)
+C2. Cross-batch calibration anchors (3.4) — ✅ APPLIED 2026-07-04 to the batch continuation prompts 81 / 83_1 / 83_2: each later batch must re-read the previous batches' W3B scorecards + W10 weakness tables as scale anchors and justify any >10-point section-score deviation from an anchor of similar completeness
 C3. `78_ACCURACY_POSTMORTEM.md` prompt (3.6) — downgraded to OPTIONAL: user confirmed the 70-series intentionally measures reasoning quality / instruction-following, not forecast accuracy; outcome scoring would be a separate optional axis, never merged into the rankings
 
 **Drift guard — ✅ APPLIED 2026-07-04:** precedence clauses added: 70 header declares 72 the single normative source (72 wins on any disagreement); 72 header declares its authority and requires deductions to map to 28 via the Grading Contract.
