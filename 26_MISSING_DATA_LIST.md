@@ -52,6 +52,27 @@ Not computing, by design:
 
 ---
 
+## Future data option (not currently provided)
+
+**Per-model Day-2 point forecasts in 10_Calculations.** Today the per-model
+"Forecasting results" tables exist for Day 3 only, so under DAY+2 FALLBACK the
+outlier/divergence/Range math re-labels the Day-3 model set to the last effective
+session. If the pipeline ever emits the same per-model table for Day 2:
+
+1. Here in 26: add the Day-2 forecast table to the PRESENT inventory and update the
+   DAY+2 FALLBACK edge-case note above (rows 1–8 would then use the Day-2 set).
+2. In 29: update the DAY+2 FALLBACK rule (Calendar Gate item 4, MODEL SET part),
+   the Rule 13 fallback line, and the Range Builder fallback wording — the
+   "re-label the Day-3 set" language is replaced by "use the provided Day-2 set".
+3. In 72: update the CALENDAR STANDARD to grade against the new behavior.
+
+Effect: on holiday-shortened weeks, ranges and dispersion would be computed from
+forecasts that actually target the last effective session, instead of a re-labeled
+3-step-ahead set. Until then, the re-labeling rule stands — never invent or rescale
+per-model Day-2 values.
+
+---
+
 ## Enforcement pointers
 
 - 29_QUERY_Template → AXIOM 0 "CALC_WORKSHEET Contract" (missing-data principle)
