@@ -1,1 +1,0 @@
-Perform methodologicaly equal evaluation for the last 2 reports (see appended documents). Mark them as R7 and R8. Use the same plan (Execution Plan — 3-Report Logic Evaluation) adjusted for R7 and R8. Execute additional evaluation. Perform the requested tasks to your full capacity. Proceed.
